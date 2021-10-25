@@ -1,25 +1,24 @@
-#include <stdlib.h>
-#include <corecrt_memory.h>
+#include <vector>
 
-struct Point {
+struct OctPoint {
 	float x;
 	float y;
 	float z;
 	int code;
 
-	Point(float px, float py, float pz) : x(px), y(py), z(pz), code(0) { }
-	Point(float px, float py, float pz, int pcode) : x(px), y(py), z(pz), code(pcode) { }
+	OctPoint(float px, float py, float pz) : x(px), y(py), z(pz), code(0) { }
+	OctPoint(float px, float py, float pz, int pcode) : x(px), y(py), z(pz), code(pcode) { }
 
-	Point operator+(Point p) {
-		return Point(this->x + p.x, this->y + p.y, this->z + p.z);
+	OctPoint operator+(OctPoint p) {
+		return OctPoint(this->x + p.x, this->y + p.y, this->z + p.z);
 	}
 
-	Point operator-(Point p) {
-		return Point(this->x - p.x, this->y - p.y, this->z - p.z);
+	OctPoint operator-(OctPoint p) {
+		return OctPoint(this->x - p.x, this->y - p.y, this->z - p.z);
 	}
 
-	Point operator*(float f) {
-		return Point(this->x * f, this->y * f, this->z * f);
+	OctPoint operator*(float f) {
+		return OctPoint(this->x * f, this->y * f, this->z * f);
 	}
 };
 
@@ -27,24 +26,20 @@ class Octree
 {
 private:
 
-	Octree* children[8];
-	Point** points;
+	std::vector<Octree> children[8];
+	std::vector<OctPoint*> points;
 	int size;
-	Point boxCenter;
+	OctPoint boxCenter;
 	float boxRadius;
 
 public:
 
 	Octree() :
-		points(nullptr), size(0), boxCenter(0.0, 0.0, 0.0, 0), boxRadius(0.0) {
+		points, size(0), boxCenter(0.0, 0.0, 0.0, 0), boxRadius(0.0) {
 		memset(children, 0, sizeof(children));
 	}
 
-	~Octree() {
-		delete[] points;
-	}
-
-	void findBox(Point** pts, int sz) 
+	void findBox(std::vector<OctPoint*> pts, unsigned int sz)
 	{
 		Point min = *pts[0], max = *pts[0];
 		for (int i = 1; i < sz; i++) {
