@@ -6,6 +6,7 @@
 #define TINYPLY_IMPLEMENTATION
 #include "tinyply.h"
 using namespace tinyply;
+#include "my_octree.cpp"
 
 std::vector<uint8_t> read_file_binary(const std::string& pathToFile)
 {
@@ -63,10 +64,6 @@ public:
     void start() { t0 = std::chrono::high_resolution_clock::now(); }
     void stop() { timestamp = std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - t0).count() * 1000.0; }
     const double& get() { return timestamp; }
-};
-
-struct Point {
-    float x, y, z;
 };
 
 int main()
@@ -129,6 +126,14 @@ int main()
         for (int i = 0; i < 100; i++) {
             std::cout << i << " point: " << verts[i].x << ' ' << verts[i].y << ' ' << verts[i].z << '\n';
         }
+
+        Octree testOctree;
+        manual_timer build_timer;
+        build_timer.start();
+        testOctree.build(verts);
+        build_timer.stop();
+        const float building_time = static_cast<float>(build_timer.get()) / 1000.f;
+        std::cout << "\tbuilding in " << building_time << " seconds [" << std::endl;
     }
     catch (const std::exception& e)
     {
