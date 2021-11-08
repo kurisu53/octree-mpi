@@ -6,7 +6,7 @@
 #define TINYPLY_IMPLEMENTATION
 #include "tinyply.h"
 using namespace tinyply;
-#include "my_octree.cpp"
+#include "my_octree.h"
 
 std::vector<uint8_t> read_file_binary(const std::string& pathToFile)
 {
@@ -123,7 +123,7 @@ int main()
         vector<Point> verts(vertices->count);
         memcpy(verts.data(), vertices->buffer.get(), numVerticesBytes);
 
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < 15; i++) {
             std::cout << i << " point: " << verts[i].x << ' ' << verts[i].y << ' ' << verts[i].z << '\n';
         }
 
@@ -134,6 +134,18 @@ int main()
         build_timer.stop();
         const float building_time = static_cast<float>(build_timer.get()) / 1000.f;
         std::cout << "\tbuilding in " << building_time << " seconds [" << std::endl;
+
+        std::cout << "\n\nFinding k nearest neighbors for point " << verts[1].x << ' ' << verts[1].y << verts[1].z << '\n';
+        std::vector<Point> result;
+        manual_timer find_timer;
+        find_timer.start();
+        testOctree.findKNearest(verts[1], 5, 20.0, result);
+        find_timer.stop();
+        const float finding_time = static_cast<float>(find_timer.get()) / 1000.f;
+        std::cout << "Result in " << finding_time << " seconds:\n";
+        for (int i = 0; i < 5; i++) {
+            std::cout << result[i].x << ' ' << result[i].y << ' ' << result[i].z << ' ' << sqrt(sqrDist(verts[1], result[i])) << '\n';
+        }
     }
     catch (const std::exception& e)
     {

@@ -31,6 +31,9 @@
   <ItemGroup>
     <ClCompile Include="tinyply.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="my_octree.h" />
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
