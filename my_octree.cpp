@@ -12,6 +12,10 @@ float sqrDist(Point a, Point b) {
     return pow(b.x - a.x, 2) + pow(b.y - a.y, 2) + pow(b.z - a.z, 2);
 }
 
+bool findElem(const std::vector<int>& vec, int elem) {
+    return (std::find(vec.begin(), vec.end(), elem) != vec.end()) ? true : false;
+}
+
 void Octree::build(const std::vector<Point>& pts) {
     clear();
     points = &pts;
@@ -71,6 +75,16 @@ void Octree::findKNearest(Point p, int k, float radius, std::vector<Point>& resu
     findKNearestRecursive(root, p, sqrRadius, result);
 }
 
+void Octree::RORfilter(int k, float radius, std::vector<int>& result) {
+    for (int i = 0; i < points->size(); i++) {
+        std::vector<Point> currNeighbors;
+        currNeighbors.reserve(k);
+        findKNearest(points->at(i), k, radius, currNeighbors);
+        if (currNeighbors.size() < k) 
+            result.push_back(i);
+    }
+}
+
 Octree::Octant* Octree::createOctant(int sz, float x, float y, float z, float ext, int beginInd, int endInd) {
     Octant* oct = new Octant;
     oct->isLeaf = true;
@@ -112,20 +126,25 @@ Octree::Octant* Octree::createOctant(int sz, float x, float y, float z, float ex
         }
 
         float childExt = 0.5f * ext;
+        bool first = true;
         int lastChildInd = 0;
         for (int i = 0; i < 8; i++) {
+            if (childrenSizes[i] == 0)
+                continue;
+
             float childX = x + factor[(i & 1) > 0] * ext;
             float childY = y + factor[(i & 2) > 0] * ext;
             float childZ = z + factor[(i & 4) > 0] * ext;
 
             oct->children[i] = createOctant(childrenSizes[i], childX, childY, childZ, childExt, childrenBegins[i], childrenEnds[i]);
 
-            if (i == 0)
+            if (first)
                 oct->begin = oct->children[i]->begin;
             else
                 successors[oct->children[lastChildInd]->end] = oct->children[i]->begin;
 
             lastChildInd = i;
+            first = false;
             oct->end = oct->children[i]->end;
         }
     }
@@ -160,9 +179,12 @@ void Octree::findKNearestRecursive(const Octant* node, Point p, float& sqrRadius
         }
     }
     else {
-        std::vector<Octant*> currChildren(8);
-        for (int i = 0; i < 8; i++)
-            currChildren[i] = node->children[i];
+        std::vector<Octant*> currChildren;
+        currChildren.reserve(8);
+        for (int i = 0; i < 8; i++) {
+            if (node->children[i] != 0)
+                currChildren.push_back(node->children[i]);
+        }
 
         struct comp {
             Point p_comp;
@@ -174,7 +196,7 @@ void Octree::findKNearestRecursive(const Octant* node, Point p, float& sqrRadius
             }
         };
         std::sort(currChildren.begin(), currChildren.end(), comp(p));
-        for (int i = 0; i < 8; i++) {
+        for (int i = 0; i < currChildren.size(); i++) {
             if (intersects(currChildren[i], p, sqrRadius)) 
                 findKNearestRecursive(currChildren[i], p, sqrRadius, result);
         }

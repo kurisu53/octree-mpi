@@ -7,6 +7,7 @@ struct Point {
 };
 
 float sqrDist(Point a, Point b);
+bool findElem(const std::vector<int>& vec, int elem);
 
 class Octree {
 public:
@@ -18,6 +19,7 @@ public:
 	void build(const std::vector<Point>& pts);
 	void clear();
 	void findKNearest(Point p, int k, float radius, std::vector<Point>& result);
+	void RORfilter(int k, float radius, std::vector<int>& result);
 
 protected:
 	class Octant {

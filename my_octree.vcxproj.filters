@@ -15,10 +15,19 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <None Include="00021.ply" />
-    <None Include="00578.ply" />
-    <None Include="05660.ply" />
     <None Include="skull.ply">
+      <Filter>Файлы ресурсов</Filter>
+    </None>
+    <None Include="00021.ply">
+      <Filter>Файлы ресурсов</Filter>
+    </None>
+    <None Include="00578.ply">
+      <Filter>Файлы ресурсов</Filter>
+    </None>
+    <None Include="05660.ply">
+      <Filter>Файлы ресурсов</Filter>
+    </None>
+    <None Include="Giraffe skull.ply">
       <Filter>Файлы ресурсов</Filter>
     </None>
   </ItemGroup>

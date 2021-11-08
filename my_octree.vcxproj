@@ -22,6 +22,7 @@
     <None Include="00021.ply" />
     <None Include="00578.ply" />
     <None Include="05660.ply" />
+    <None Include="Giraffe skull.ply" />
     <None Include="skull.ply" />
   </ItemGroup>
   <ItemGroup>

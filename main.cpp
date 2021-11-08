@@ -146,6 +146,24 @@ int main()
         for (int i = 0; i < 5; i++) {
             std::cout << result[i].x << ' ' << result[i].y << ' ' << result[i].z << ' ' << sqrt(sqrDist(verts[1], result[i])) << '\n';
         }
+
+        std::cout << "\n\nFinding points to remove via ROR\n";
+        vector<int> indsToRemove;
+        indsToRemove.reserve(verts.size());
+        manual_timer filter_timer;
+        filter_timer.start();
+        testOctree.RORfilter(10, 2.5, indsToRemove);
+        filter_timer.stop();
+        const float filtering_time = static_cast<float>(filter_timer.get()) / 1000.f;
+        std::cout << indsToRemove.size() << " points to remove. \n" << filtering_time << " seconds filtering\n";
+
+        std::cout << "Removing points from point cloud\n";
+        std::vector<Point> filteredVerts;
+        for (int i = 0; i < verts.size(); i++) {
+            if (!findElem(indsToRemove, i))
+                filteredVerts.push_back(verts[i]);
+        }
+        std::cout << "Filtered point cloud size: " << filteredVerts.size() << " points.\n";
     }
     catch (const std::exception& e)
     {
