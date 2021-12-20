@@ -6,6 +6,7 @@
 
 #include "my_octree.h"
 
+// checking MPI functions for success
 void checkForSuccess(int rc, int errCode)
 {
     if(rc != MPI_SUCCESS)
@@ -15,6 +16,7 @@ void checkForSuccess(int rc, int errCode)
     }
 }
 
+// removing an element from an array without reallocating
 void removeElement(Point *array, int index, int size)
 {
     int i;
@@ -22,11 +24,13 @@ void removeElement(Point *array, int index, int size)
         array[i] = array[i + 1];
 }
 
+// square distance between points
 float sqrDist(Point a, Point b)
 {
     return pow(b.x - a.x, 2) + pow(b.y - a.y, 2) + pow(b.z - a.z, 2);
 }
 
+// maximum of 2 floats
 float max(float a, float b)
 {
     if (a >= b)
@@ -35,6 +39,7 @@ float max(float a, float b)
         return b;
 }
 
+// comparator of 2 points by their square distance from point p
 int pointComp(const void* a, const void* b)
 {
     const Point *l = (const Point *) a;
@@ -42,6 +47,7 @@ int pointComp(const void* a, const void* b)
     return sqrDist(p, *l) > sqrDist(p, *r);
 }
 
+// comparator of 2 octants by square distance of their centers to point p
 int octantComp(const void* a, const void * b)
 {
     Octant *l = *(Octant **) a;
@@ -51,7 +57,7 @@ int octantComp(const void* a, const void * b)
     return sqrDist(p, lCenter) > sqrDist(p, rCenter);
 }
 
-
+// Octree "constructor"
 void initOctree(Octree *octree)
 {
     octree->root = NULL;
@@ -59,6 +65,7 @@ void initOctree(Octree *octree)
     octree->successors = NULL;
 }
 
+// Octree "destructor"
 void deleteOctree(Octree *octree)
 {
     if (octree) {
@@ -79,6 +86,7 @@ void deleteOctree(Octree *octree)
     }
 }
 
+// building an octree
 void buildOctree(Octree *octree, Point *pts, int size)
 {
     float min[3], max[3], ctr[3];
@@ -110,6 +118,7 @@ void buildOctree(Octree *octree, Point *pts, int size)
     for (i = 0; i < 3; i++)
         ctr[i] = min[i];
     
+    // calculating extent and coords of octant center
     maxext = 0.5f * (max[0] - min[0]);
     ctr[0] += maxext;
     for (i = 1; i < 3; i++) {
@@ -118,9 +127,11 @@ void buildOctree(Octree *octree, Point *pts, int size)
         if (ext > maxext) maxext = ext;
     }
 
+    // recursively creating all octants
     octree->root = createOctant(octree, size, ctr[0], ctr[1], ctr[2], maxext, 0, size - 1);
 }
 
+// freeing octree
 void clearOctree(Octree *octree)
 {
     if (octree->points) {
@@ -137,6 +148,7 @@ void clearOctree(Octree *octree)
     }
 }
 
+// Octant "constructor"
 void initOctant(Octant *octant)
 {
     octant->isLeaf = 1;
@@ -150,6 +162,7 @@ void initOctant(Octant *octant)
     memset(&(octant->children), 0, 8 * sizeof(Octant*));
 }
 
+// Octant "destructor"
 void deleteOctant(Octant *octant)
 {
     int i = 0;
@@ -164,6 +177,7 @@ void deleteOctant(Octant *octant)
     }
 }
 
+// recursive octant creation
 Octant* createOctant(Octree *octree, int sz, float x, float y, float z, float ext, int beginInd, int endInd)
 {
     int i = 0, index, code, first, lastChildInd;
@@ -184,7 +198,7 @@ Octant* createOctant(Octree *octree, int sz, float x, float y, float z, float ex
     oct->begin = beginInd;
     oct->end = endInd;
 
-    if (sz > BUCKET_SIZE && ext > 0) {
+    if (sz > BUCKET_SIZE && ext > 0) { // not a leaf yet
         oct->isLeaf = 0;
         pts = octree->points;
 
@@ -197,6 +211,7 @@ Octant* createOctant(Octree *octree, int sz, float x, float y, float z, float ex
 
         for (i = 0; i < sz; i++) {
             code = 0;
+            // which child octant does the point belong to
             if (pts[index].x > x) code |= 1;
             if (pts[index].y > y) code |= 2;
             if (pts[index].z > z) code |= 4;
@@ -223,12 +238,14 @@ Octant* createOctant(Octree *octree, int sz, float x, float y, float z, float ex
                 continue;
             }
 
+            // calculating children centers coords
             childX = x + factor[(i & 1) > 0] * ext;
             childY = y + factor[(i & 2) > 0] * ext;
             childZ = z + factor[(i & 4) > 0] * ext;
 
             oct->children[i] = createOctant(octree, childrenSizes[i], childX, childY, childZ, childExt, childrenBegins[i], childrenEnds[i]);
 
+            // indexing children
             if (first) {
                 oct->begin = oct->children[i]->begin;
             }
@@ -297,25 +314,6 @@ void findKNearestRecursive(Octree *octree, Octant *octant, int k, float *sqrRadi
     }
 }
 
-void RORfilter(Octree *octree, int k, float radius, int size, int *result, int *resultSize) 
-{
-    int i, j = 0, innerResultSize;
-    Point *currNeighbors = NULL;
-    for (i = 0; i < size; i++) 
-    {
-        innerResultSize = 0;
-        p = octree->points[i];
-        findKNearest(octree, k, radius, &currNeighbors, &innerResultSize);
-        if (innerResultSize < k) 
-        {
-            (*resultSize)++;
-            result[(*resultSize)-1] = i;
-        }
-        free(currNeighbors);
-        currNeighbors = NULL;        
-    }
-}
-
 void RORfilterParallel(Octree *octree, int k, float radius, int size, int *result, int *resultSize, int ibeg, int iend) 
 {
     int i, j = 0, innerResultSize;
@@ -335,6 +333,7 @@ void RORfilterParallel(Octree *octree, int k, float radius, int size, int *resul
     }
 }
 
+// does an octant intersect with a sphere of a given radius with a center in point p?
 int intersects(Octant *oct, float sqrRadius)
 {
     float x = abs(p.x - oct->center.x);
@@ -350,7 +349,7 @@ int intersects(Octant *oct, float sqrRadius)
     if (check > 1)
         return 1;
     
-    x = max(x - oct->extent, 0.0f); // x = x - oct->extent > 0.0f ? x-oct->extent : 0.0f;
+    x = max(x - oct->extent, 0.0f); 
     y = max(y - oct->extent, 0.0f);
     z = max(z - oct->extent, 0.0f);
     return (pow(x, 2) + pow(y, 2) + pow(z, 2) < sqrRadius);

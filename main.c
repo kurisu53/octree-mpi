@@ -8,8 +8,7 @@
 
 #include "my_octree.h"
 
-Point *testpts;
-
+// callback function for PLY file reading
 static int vertex_cb(p_ply_argument argument) 
 {
     static int i = 0;
@@ -34,19 +33,38 @@ static int vertex_cb(p_ply_argument argument)
 
 int main(int argc, char* argv[])
 {
+    // declaring variables
     Octree *testOctree;
     Point *result = NULL;
     Point testPoint;
-    MPI_Status status;
+    int resultSize = 0, i, j, l;
+    int *indsToRemove, *tempInds;
+    long nvertices, newvertices, microseconds = 0;
     struct timeval start, stop;
-    long microseconds = 0;
-    int resultSize = 0, i, j, k, *indsToRemove, mpi_size = 0, mpi_rank = 0, ibeg, iend, tempSize, *tempInds;
-    long nvertices, newvertices;
     p_ply ply;
+    
+    MPI_Status status;
+    int mpi_size = 0, mpi_rank = 0, ibeg, iend, tempSize;
 
-    checkForSuccess(MPI_Init(&argc, &argv), 1);
-    checkForSuccess(MPI_Comm_size(MPI_COMM_WORLD, &mpi_size), 2);
-    checkForSuccess(MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank), 3);
+    // command line arguments
+    char *filename; // PLY source file name
+    int k; // min number of neighbors every point should have
+    float rad; // search radius for neighbors
+
+    if (argc != 4) {
+        fprintf(stderr, "3 command line arguments must be passed: filename,\n min number of neighbors every point should have, search radius\n");
+        exit(EXIT_FAILURE);
+    }
+    filename = argv[1];
+    k = atoi(argv[2]);
+    rad = atof(argv[3]);
+
+    // MPI initialization
+    checkForSuccess(MPI_Init(&argc, &argv), ERR_INIT);
+    checkForSuccess(MPI_Comm_size(MPI_COMM_WORLD, &mpi_size), ERR_COMM_SIZE);
+    checkForSuccess(MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank), ERR_COMM_RANK);
+
+    // creating a structure for sending Point type
 
     const int    nitems = 3;
     int          blocklengths[3] = {1,1,1};
@@ -58,76 +76,93 @@ int main(int argc, char* argv[])
     offsets[1] = offsetof(Point, y);
     offsets[2] = offsetof(Point, z);
 
-    checkForSuccess(MPI_Type_create_struct(nitems, blocklengths, offsets, types, &mpi_point_type), 20);
-    checkForSuccess(MPI_Type_commit(&mpi_point_type), 21);
+    checkForSuccess(MPI_Type_create_struct(nitems, blocklengths, offsets, types, &mpi_point_type), ERR_CREATE_STRUCT);
+    checkForSuccess(MPI_Type_commit(&mpi_point_type), ERR_COMMIT);
 
-    if(mpi_rank == 0)
-    {
-        ply = ply_open("skull.ply", NULL, 0, NULL);
-        if (!ply) return 1;
-        if (!ply_read_header(ply)) return 1;
+    if(mpi_rank == 0) {
+        // master process reads from a file
+        ply = ply_open(filename, NULL, 0, NULL);
+        if (!ply) {
+            fprintf(stderr, "File pointer is null\n");
+            exit(EXIT_FAILURE);
+        }
+        if (!ply_read_header(ply)) {
+            fprintf(stderr, "Failed to read PLY file header\n");
+            exit(EXIT_FAILURE);
+        }
         nvertices = ply_set_read_cb(ply, "vertex", "x", vertex_cb, NULL, 0);
         ply_set_read_cb(ply, "vertex", "y", vertex_cb, NULL, 1);
         ply_set_read_cb(ply, "vertex", "z", vertex_cb, NULL, 2);
-        printf("%ld\n %ld\n", nvertices, nvertices * sizeof(Point));
+        printf("File contains %ld points\n", nvertices);
         testpts = malloc(sizeof(Point) * nvertices);
-        if (!ply_read(ply)) return 1;
+        if (!ply_read(ply)) {
+            fprintf(stderr, "Failed to read from PLY file\n");
+            exit(EXIT_FAILURE);
+        }
         ply_close(ply);
     }
-    checkForSuccess(MPI_Bcast(&nvertices, 1, MPI_LONG, 0, MPI_COMM_WORLD), 9);
+    // master process broadcasts number of points
+    checkForSuccess(MPI_Bcast(&nvertices, 1, MPI_LONG, 0, MPI_COMM_WORLD), ERR_BCAST);
     if(mpi_rank != 0)
         testpts = malloc(sizeof(Point) * nvertices);
-    checkForSuccess(MPI_Bcast(testpts, nvertices, mpi_point_type, 0, MPI_COMM_WORLD), 9);
+    // master process broadcasts all points in a cloud
+    checkForSuccess(MPI_Bcast(testpts, nvertices, mpi_point_type, 0, MPI_COMM_WORLD), ERR_BCAST);
 
+    // initializing and building an octree from a point cloud
     testOctree = malloc(sizeof(Octree));
-
     initOctree(testOctree);
     buildOctree(testOctree, testpts, nvertices);
 
+    // calculating indexes for workload division between processes
     ibeg = mpi_rank * nvertices / mpi_size;
     if(mpi_rank == mpi_size - 1)
         iend = nvertices - 1;
     else
         iend = (mpi_rank + 1) * nvertices / mpi_size - 1;
     
+    // array of indexes of points to be deleted from a cloud
     indsToRemove = malloc(sizeof(int) * nvertices);
     resultSize = 0;
 
+    if (mpi_rank == 0)
+        printf("Starting filtering...\n\n");
+
+    // every process searches for points to be filtered in its own section of a cloud
     gettimeofday(&start, NULL);
-    RORfilterParallel(testOctree, 10, 2.5f, nvertices, indsToRemove, &resultSize, ibeg, iend);
-    if(mpi_rank != 0)
-    {
-        checkForSuccess(MPI_Send(&resultSize, 1, MPI_INT, 0, 1, MPI_COMM_WORLD), 4);
-        checkForSuccess(MPI_Send(indsToRemove, resultSize, MPI_INT, 0, 1, MPI_COMM_WORLD), 4);
+    RORfilterParallel(testOctree, k, rad, nvertices, indsToRemove, &resultSize, ibeg, iend);
+    if(mpi_rank != 0) {
+        // everyone sends calculated indexes to master
+        checkForSuccess(MPI_Send(&resultSize, 1, MPI_INT, 0, 1, MPI_COMM_WORLD), ERR_SEND);
+        checkForSuccess(MPI_Send(indsToRemove, resultSize, MPI_INT, 0, 1, MPI_COMM_WORLD), ERR_SEND);
     }
-    else
-    {
-        for(i = 1; i < mpi_size; i++)
-        {
-            checkForSuccess(MPI_Recv(&tempSize, 1, MPI_INT, i, 1, MPI_COMM_WORLD, &status), 5);
+    else {
+        for(i = 1; i < mpi_size; i++) {
+            // master process compiles a complete indsToRemove array
+            checkForSuccess(MPI_Recv(&tempSize, 1, MPI_INT, i, 1, MPI_COMM_WORLD, &status), ERR_RECV);
             tempInds = malloc(sizeof(int) * tempSize);
-            checkForSuccess(MPI_Recv(tempInds, tempSize, MPI_INT, i, 1, MPI_COMM_WORLD, &status), 5);
-            k = 0;
+            checkForSuccess(MPI_Recv(tempInds, tempSize, MPI_INT, i, 1, MPI_COMM_WORLD, &status), ERR_RECV);
+            l = 0;
             for(j = resultSize; j < resultSize + tempSize; j++)
-                indsToRemove[j] = tempInds[k++];
+                indsToRemove[j] = tempInds[l++];
             resultSize += tempSize;
             free(tempInds);
         }
         gettimeofday(&stop, NULL);
         microseconds = (stop.tv_sec - start.tv_sec) * 1000000 + stop.tv_usec - start.tv_usec;
-        printf("R%d: Time spent = %lu mircoseconds\nTime spent = %f miliseconds\nTime spent = %f seconds\n", 
-                mpi_rank, 
-                microseconds, 
-                (float)microseconds / 1000, 
-                (float)microseconds / 1000000);
+        printf("Points to be filtered found in %f seconds\n", (float)microseconds / 1000000);
+        printf("%d points to be removed\n", resultSize);
 
+        // master process handles removing of points from a cloud
+        printf("\nFiltering the cloud...\n");
         for(i = 0; i < resultSize; i++)
             removeElement(testpts, indsToRemove[i] - i, nvertices - i);
         newvertices = nvertices - resultSize;
         testpts = realloc(testpts, sizeof(Point) * newvertices);
         testOctree->points = testpts;      
+        printf("Finished filtering the cloud! It contains %ld points now\n", newvertices);
     }
 
+    // freeing memory
     deleteOctree(testOctree);
     free(indsToRemove);
 
