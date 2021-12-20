@@ -1,50 +1,60 @@
-#pragma once
-#include <vector>
-#include <cmath>
+#ifndef MY_OCTREE_H
+#define MY_OCTREE_H
+#define BUCKET_SIZE 32
 
-struct Point {
-	float x, y, z;
-};
+// point structure
 
+typedef struct Point {
+    float x, y, z;
+} Point;
+
+Point p;
+
+// utility functions
+
+void removeElement(Point *array, int index, int size);
 float sqrDist(Point a, Point b);
-bool findElem(const std::vector<int>& vec, int elem);
 
-class Octree {
-public:
-	Octree() : root(0), points(0) {}
-	~Octree() {
-		delete root;
-	}
+// Octree and Octant structures
 
-	void build(const std::vector<Point>& pts);
-	void clear();
-	void findKNearest(Point p, int k, float radius, std::vector<Point>& result);
-	void RORfilter(int k, float radius, std::vector<int>& result);
+typedef struct Octant {
+    int isLeaf;
+    struct Octant* children[8];
+    int size;
+    int begin;
+    int end;
+    Point center;
+    float extent;
+} Octant;
 
-protected:
-	class Octant {
-	public:
-		Octant* children[8];
-		int size;
-		bool isLeaf;
-		float centerX, centerY, centerZ;
-		float extent;
-		int begin, end;
+typedef struct Octree {
+    Octant* root;
+    Point* points;
+    int* successors;
+} Octree;
 
-		Octant() : isLeaf(true), centerX(0.0f), centerY(0.0f), centerZ(0.0f), extent(0.0f), begin(0), end(0), size(0) {
-			memset(&children, 0, 8 * sizeof(Octant*));
-		}
-		~Octant() {
-			for (int i = 0; i < 8; i++)
-				delete children[i];
-		}
-	};
+// initialization and deletion of Octree/Octant
 
-	Octant* root;
-	const std::vector<Point>* points;
-	std::vector<int> successors;
+int pointComp(const void*, const void*);
+int octantComp(const void*, const void*);
 
-	Octant* createOctant(int sz, float x, float y, float z, float ext, int beginInd, int endInd);
-	void findKNearestRecursive(const Octant* node, Point p, float& sqrRadius, std::vector<Point>& result);
-	bool intersects(const Octant* oct, Point p, float sqrRadius);
-};
+
+void initOctree(Octree *octree);
+void deleteOctree(Octree *octree);
+
+void buildOctree(Octree *octree, Point *pts, int size);
+void clearOctree(Octree *octree);
+
+void initOctant(Octant *octant);
+void deleteOctant(Octant *octant);
+
+Octant* createOctant(Octree *octree, int sz, float x, float y, float z, float ext, int beginInd, int endInd);
+
+void findKNearest(Octree *octree, int k, float radius, Point **result, int *resultSize);
+void findKNearestRecursive(Octree *octree, Octant *octant, int k, float *sqrRadius, Point *result, int *resultSize);
+void RORfilter(Octree *octree, int k, float radius, int size, int *result, int *);
+
+int intersects(Octant *, float);
+
+
+#endif
