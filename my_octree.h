@@ -12,6 +12,7 @@ Point p;
 
 // utility functions
 
+void checkForSuccess(int, int);
 void removeElement(Point *array, int index, int size);
 float sqrDist(Point a, Point b);
 
@@ -53,6 +54,7 @@ Octant* createOctant(Octree *octree, int sz, float x, float y, float z, float ex
 void findKNearest(Octree *octree, int k, float radius, Point **result, int *resultSize);
 void findKNearestRecursive(Octree *octree, Octant *octant, int k, float *sqrRadius, Point *result, int *resultSize);
 void RORfilter(Octree *octree, int k, float radius, int size, int *result, int *);
+void RORfilterParallel(Octree *octree, int k, float radius, int size, int *result, int *resultSize, int ibeg, int iend);
 
 int intersects(Octant *, float);
 

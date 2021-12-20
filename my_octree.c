@@ -2,8 +2,18 @@
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
+#include <mpi.h>
 
 #include "my_octree.h"
+
+void checkForSuccess(int rc, int errCode)
+{
+    if(rc != MPI_SUCCESS)
+    {
+        fprintf(stderr, "Error calling MPI function!\n");
+        MPI_Abort(MPI_COMM_WORLD, errCode);
+    }
+}
 
 void removeElement(Point *array, int index, int size)
 {
@@ -306,6 +316,25 @@ void RORfilter(Octree *octree, int k, float radius, int size, int *result, int *
     }
 }
 
+void RORfilterParallel(Octree *octree, int k, float radius, int size, int *result, int *resultSize, int ibeg, int iend) 
+{
+    int i, j = 0, innerResultSize;
+    Point *currNeighbors = NULL;
+    for (i = ibeg; i <= iend; i++) 
+    {
+        innerResultSize = 0;
+        p = octree->points[i];
+        findKNearest(octree, k, radius, &currNeighbors, &innerResultSize);
+        if (innerResultSize < k) 
+        {
+            (*resultSize)++;
+            result[(*resultSize)-1] = i;
+        }
+        free(currNeighbors);
+        currNeighbors = NULL;        
+    }
+}
+
 int intersects(Octant *oct, float sqrRadius)
 {
     float x = abs(p.x - oct->center.x);
@@ -321,7 +350,7 @@ int intersects(Octant *oct, float sqrRadius)
     if (check > 1)
         return 1;
     
-    x = max(x - oct->extent, 0.0f); 
+    x = max(x - oct->extent, 0.0f); // x = x - oct->extent > 0.0f ? x-oct->extent : 0.0f;
     y = max(y - oct->extent, 0.0f);
     z = max(z - oct->extent, 0.0f);
     return (pow(x, 2) + pow(y, 2) + pow(z, 2) < sqrRadius);
