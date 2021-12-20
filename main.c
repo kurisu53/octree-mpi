@@ -6,8 +6,7 @@
 
 #include "my_octree.h"
 
-Point *testpts;
-
+// callback function for PLY file reading
 static int vertex_cb(p_ply_argument argument) 
 {
     static int i = 0;
@@ -32,53 +31,76 @@ static int vertex_cb(p_ply_argument argument)
 
 int main(int argc, char* argv[])
 {
+    // declaring variables
     Octree *testOctree;
     Point *result = NULL;
-    int resultSize = 0, i, *indsToRemove;
+    int resultSize = 0, i;
+    int *indsToRemove;
     long nvertices, newvertices, microseconds;
     struct timeval start, stop;
+    p_ply ply;
+
+    // command line arguments
+    char *filename; // PLY source file name
+    int k; // min number of neighbors every point should have
+    float rad; // search radius for neighbors
+
+    if (argc != 4) {
+        fprintf(stderr, "3 command line arguments must be passed: filename,\n min number of neighbors every point should have, search radius\n");
+        exit(EXIT_FAILURE);
+    }
+    filename = argv[1];
+    k = atoi(argv[2]);
+    rad = atof(argv[3]);
    
-    p_ply ply = ply_open("skull.ply", NULL, 0, NULL);
-    if (!ply) return 1;
-    if (!ply_read_header(ply)) return 1;
+    // reading from a PLY file using RPly library
+    ply = ply_open(filename, NULL, 0, NULL);
+    if (!ply) {
+        fprintf(stderr, "File pointer is null\n");
+        exit(EXIT_FAILURE);
+    }
+    if (!ply_read_header(ply)) {
+        fprintf(stderr, "Failed to read PLY file header\n");
+        exit(EXIT_FAILURE);
+    }
     nvertices = ply_set_read_cb(ply, "vertex", "x", vertex_cb, NULL, 0);
     ply_set_read_cb(ply, "vertex", "y", vertex_cb, NULL, 1);
     ply_set_read_cb(ply, "vertex", "z", vertex_cb, NULL, 2);
-    printf("%ld\n %ld\n", nvertices, nvertices * sizeof(Point));
+    printf("File contains %ld points\n", nvertices);
     testpts = malloc(sizeof(Point) * nvertices);
-    if (!ply_read(ply)) return 1;
+    if (!ply_read(ply)) {
+        fprintf(stderr, "Failed to read from PLY file\n");
+        exit(EXIT_FAILURE);
+    }
     ply_close(ply);
 
+    // initializing and building an octree from a point cloud
     testOctree = malloc(sizeof(Octree));
     initOctree(testOctree);
     buildOctree(testOctree, testpts, nvertices);
-
-    printf("\n\nFinding k nearest neighbors for point %f %f %f\n", testpts[1].x,  testpts[1].y, testpts[1].z);
-    p = testpts[1];
-    findKNearest(testOctree, 5, 20.0f, &result, &resultSize);
-
-    for (i = 0; i < resultSize; i++) 
-        printf("%f %f %f %f\n", result[i].x, result[i].y, result[i].z, sqrt(sqrDist(p, result[i])));
     
+    // array of indexes of points to be deleted from a cloud
     indsToRemove = malloc(sizeof(int) * nvertices);
     resultSize = 0;
     
+    printf("Starting filtering...\n\n");
+    // timed radius outlier filtering
     gettimeofday(&start, NULL);
-    RORfilter(testOctree, 10, 2.5f, nvertices, indsToRemove, &resultSize);
+    RORfilter(testOctree, k, rad, nvertices, indsToRemove, &resultSize);
     gettimeofday(&stop, NULL);
     microseconds = (stop.tv_sec - start.tv_sec) * 1000000 + stop.tv_usec - start.tv_usec;
-    printf("Time spent = %lu mircoseconds\nTime spent = %f miliseconds\nTime spent = %f seconds\n",  
-            microseconds, 
-            (float)microseconds / 1000, 
-            (float)microseconds / 1000000);
+    printf("Points to be filtered found in %f seconds\n", (float)microseconds / 1000000);
+    printf("%d points to be removed\n", resultSize);
 
-    printf("%d points to remove\n", resultSize);
-
+    printf("\nFiltering the cloud...\n");
     for(i = 0; i < resultSize; i++)
         removeElement(testpts, indsToRemove[i] - i, nvertices - i);
     newvertices = nvertices - resultSize;
     testpts = realloc(testpts, sizeof(Point) * newvertices);
     testOctree->points = testpts;
+    printf("Finished filtering the cloud! It contains %ld points now\n", newvertices);
+
+    // freeing memory
     deleteOctree(testOctree);
     free(result);
     free(indsToRemove);
