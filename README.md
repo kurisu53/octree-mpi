@@ -1,13 +1,11 @@
 # octree-mpi
-Prototype octree class
+Serial realization of radius outlier filter for point clouds using octree
+
+Uses RPly library for PLY files reading.
+Implements building an octree from a point cloud, finding k nearest neighbors for a given point, radius outlier filtering.
 
 __TODO:__
-- [IN PROGRESS] Enhancing octree class
-- [DONE, used tinyply lib] Adding reading point cloud data from PLY files
-- [DONE] Adding working nearest neighbor search
 - Adding writing point cloud data to PLY files
-- [PROTOTYPE DONE] Implementing radius outlier filter for point clouds
 - Implementing statistical outlier filter for point clouds
 - Adding point cloud visualization
-- MPI parallelization ideas
 - Overall optimizing & refactoring
