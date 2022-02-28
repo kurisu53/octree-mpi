@@ -8,12 +8,11 @@ typedef struct Point {
     float x, y, z;
 } Point;
 
-Point *testpts;
+Point *inputpts, *resultpts;
 Point p;
 
 // utility functions
 
-void removeElement(Point *, int, int);
 float sqrDist(Point, Point);
 float max(float, float);
 
@@ -59,7 +58,7 @@ Octant* createOctant(Octree *, int, float, float, float, float, int, int);
 
 void findKNearest(Octree *, int, float, Point **, int *);
 void findKNearestRecursive(Octree *, Octant *, int, float *, Point *, int *);
-void RORfilter(Octree *, int, float, int, int *, int *);
+void RORfilter(Octree *, int, float, int, int *, long *);
 int intersects(Octant *, float);
 
 #endif

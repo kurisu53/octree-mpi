@@ -5,14 +5,6 @@
 
 #include "my_octree.h"
 
-// removing an element from an array without reallocating
-void removeElement(Point *array, int index, int size)
-{
-    int i;
-    for(i = index; i < size - 1; i++) 
-        array[i] = array[i + 1];
-}
-
 // square distance between points
 float sqrDist(Point a, Point b)
 {
@@ -303,7 +295,7 @@ void findKNearestRecursive(Octree *octree, Octant *octant, int k, float *sqrRadi
     }
 }
 
-void RORfilter(Octree *octree, int k, float radius, int size, int *result, int *resultSize) 
+void RORfilter(Octree *octree, int k, float radius, int size, int *result, long *resultSize) 
 {
     int i, j = 0, innerResultSize;
     Point *currNeighbors = NULL;
@@ -312,7 +304,7 @@ void RORfilter(Octree *octree, int k, float radius, int size, int *result, int *
         innerResultSize = 0;
         p = octree->points[i];
         findKNearest(octree, k, radius, &currNeighbors, &innerResultSize);
-        if (innerResultSize < k) 
+        if (innerResultSize >= k) 
         {
             (*resultSize)++;
             result[(*resultSize)-1] = i;

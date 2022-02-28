@@ -15,13 +15,13 @@ static int vertex_cb(p_ply_argument argument)
     switch (flag)
     {
         case 0:
-            testpts[i].x = ply_get_argument_value(argument);
+            inputpts[i].x = ply_get_argument_value(argument);
             break;
         case 1:
-            testpts[i].y = ply_get_argument_value(argument);
+            inputpts[i].y = ply_get_argument_value(argument);
             break;
         case 2:
-            testpts[i++].z = ply_get_argument_value(argument);
+            inputpts[i++].z = ply_get_argument_value(argument);
             break;
         default:
             break;
@@ -33,10 +33,9 @@ int main(int argc, char* argv[])
 {
     // declaring variables
     Octree *testOctree;
-    Point *result = NULL;
-    int resultSize = 0, i;
-    int *indsToRemove;
-    long nvertices, newvertices, microseconds;
+    int i, j;
+    int *indsToStay;
+    long nvertices, resultSize = 0, microseconds = 0;
     struct timeval start, stop;
     p_ply ply;
 
@@ -67,7 +66,7 @@ int main(int argc, char* argv[])
     ply_set_read_cb(ply, "vertex", "y", vertex_cb, NULL, 1);
     ply_set_read_cb(ply, "vertex", "z", vertex_cb, NULL, 2);
     printf("File contains %ld points\n", nvertices);
-    testpts = malloc(sizeof(Point) * nvertices);
+    inputpts = malloc(sizeof(Point) * nvertices);
     if (!ply_read(ply)) {
         fprintf(stderr, "Failed to read from PLY file\n");
         exit(EXIT_FAILURE);
@@ -77,33 +76,34 @@ int main(int argc, char* argv[])
     // initializing and building an octree from a point cloud
     testOctree = malloc(sizeof(Octree));
     initOctree(testOctree);
-    buildOctree(testOctree, testpts, nvertices);
+    buildOctree(testOctree, inputpts, nvertices);
     
-    // array of indexes of points to be deleted from a cloud
-    indsToRemove = malloc(sizeof(int) * nvertices);
+    // array of indexes of points to remain in the cloud
+    indsToStay = malloc(sizeof(int) * nvertices);
     resultSize = 0;
     
     printf("Starting filtering...\n\n");
     // timed radius outlier filtering
     gettimeofday(&start, NULL);
-    RORfilter(testOctree, k, rad, nvertices, indsToRemove, &resultSize);
+    RORfilter(testOctree, k, rad, nvertices, indsToStay, &resultSize);
     gettimeofday(&stop, NULL);
     microseconds = (stop.tv_sec - start.tv_sec) * 1000000 + stop.tv_usec - start.tv_usec;
     printf("Points to be filtered found in %f seconds\n", (float)microseconds / 1000000);
-    printf("%d points to be removed\n", resultSize);
+    printf("%ld points to stay\n", resultSize);
 
     printf("\nFiltering the cloud...\n");
-    for(i = 0; i < resultSize; i++)
-        removeElement(testpts, indsToRemove[i] - i, nvertices - i);
-    newvertices = nvertices - resultSize;
-    testpts = realloc(testpts, sizeof(Point) * newvertices);
-    testOctree->points = testpts;
-    printf("Finished filtering the cloud! It contains %ld points now\n", newvertices);
+    resultpts = malloc(sizeof(Point) * resultSize);
+    j = 0;
+    for (i = 0; i < resultSize; i++) {
+        resultpts[i] = inputpts[indsToStay[j]];
+        j++;
+    }
+    printf("Finished filtering the cloud! It contains %ld points now\n", resultSize);
 
     // freeing memory
     deleteOctree(testOctree);
-    free(result);
-    free(indsToRemove);
+    free(resultpts);
+    free(indsToStay);
 
     return 0;
 }
