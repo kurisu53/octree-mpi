@@ -16,14 +16,6 @@ void checkForSuccess(int rc, int errCode)
     }
 }
 
-// removing an element from an array without reallocating
-void removeElement(Point *array, int index, int size)
-{
-    int i;
-    for(i = index; i < size - 1; i++) 
-        array[i] = array[i + 1];
-}
-
 // square distance between points
 float sqrDist(Point a, Point b)
 {
@@ -314,7 +306,8 @@ void findKNearestRecursive(Octree *octree, Octant *octant, int k, float *sqrRadi
     }
 }
 
-void RORfilterParallel(Octree *octree, int k, float radius, int size, int *result, int *resultSize, int ibeg, int iend) 
+// returns indexes of points that need to stay in the cloud in result[]
+void RORfilterParallel(Octree *octree, int k, float radius, int size, int *result, long *resultSize, int ibeg, int iend) 
 {
     int i, j = 0, innerResultSize;
     Point *currNeighbors = NULL;
@@ -323,8 +316,7 @@ void RORfilterParallel(Octree *octree, int k, float radius, int size, int *resul
         innerResultSize = 0;
         p = octree->points[i];
         findKNearest(octree, k, radius, &currNeighbors, &innerResultSize);
-        if (innerResultSize < k) 
-        {
+        if (innerResultSize >= k) {
             (*resultSize)++;
             result[(*resultSize)-1] = i;
         }

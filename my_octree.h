@@ -20,13 +20,13 @@ typedef struct Point {
     float x, y, z;
 } Point;
 
-Point *testpts;
+// Point *testpts;
+Point *inputpts, *resultpts;
 Point p;
 
 // utility functions
 
 void checkForSuccess(int, int);
-void removeElement(Point *, int, int);
 float sqrDist(Point, Point);
 float max(float, float);
 
@@ -72,7 +72,7 @@ Octant* createOctant(Octree *, int, float, float, float, float, int, int);
 
 void findKNearest(Octree *, int, float, Point **, int *);
 void findKNearestRecursive(Octree *, Octant *, int, float *, Point *, int *);
-void RORfilterParallel(Octree *, int, float, int, int *, int *, int, int);
+void RORfilterParallel(Octree *, int, float, int, int *, long *, int, int);
 int intersects(Octant *, float);
 
 #endif

@@ -17,13 +17,13 @@ static int vertex_cb(p_ply_argument argument)
     switch (flag)
     {
         case 0:
-            testpts[i].x = ply_get_argument_value(argument);
+            inputpts[i].x = ply_get_argument_value(argument);
             break;
         case 1:
-            testpts[i].y = ply_get_argument_value(argument);
+            inputpts[i].y = ply_get_argument_value(argument);
             break;
         case 2:
-            testpts[i++].z = ply_get_argument_value(argument);
+            inputpts[i++].z = ply_get_argument_value(argument);
             break;
         default:
             break;
@@ -35,16 +35,14 @@ int main(int argc, char* argv[])
 {
     // declaring variables
     Octree *testOctree;
-    Point *result = NULL;
-    Point testPoint;
-    int resultSize = 0, i, j, l;
-    int *indsToRemove, *tempInds;
-    long nvertices, newvertices, microseconds = 0;
+    int i, j, l;
+    int *indsToStay, *tempInds;
+    long nvertices, resultSize = 0, microseconds = 0, tempSize;
     struct timeval start, stop;
     p_ply ply;
     
     MPI_Status status;
-    int mpi_size = 0, mpi_rank = 0, ibeg, iend, tempSize;
+    int mpi_size = 0, mpi_rank = 0, ibeg, iend;
 
     // command line arguments
     char *filename; // PLY source file name
@@ -94,7 +92,7 @@ int main(int argc, char* argv[])
         ply_set_read_cb(ply, "vertex", "y", vertex_cb, NULL, 1);
         ply_set_read_cb(ply, "vertex", "z", vertex_cb, NULL, 2);
         printf("File contains %ld points\n", nvertices);
-        testpts = malloc(sizeof(Point) * nvertices);
+        inputpts = malloc(sizeof(Point) * nvertices);
         if (!ply_read(ply)) {
             fprintf(stderr, "Failed to read from PLY file\n");
             exit(EXIT_FAILURE);
@@ -104,14 +102,14 @@ int main(int argc, char* argv[])
     // master process broadcasts number of points
     checkForSuccess(MPI_Bcast(&nvertices, 1, MPI_LONG, 0, MPI_COMM_WORLD), ERR_BCAST);
     if(mpi_rank != 0)
-        testpts = malloc(sizeof(Point) * nvertices);
+        inputpts = malloc(sizeof(Point) * nvertices);
     // master process broadcasts all points in a cloud
-    checkForSuccess(MPI_Bcast(testpts, nvertices, mpi_point_type, 0, MPI_COMM_WORLD), ERR_BCAST);
+    checkForSuccess(MPI_Bcast(inputpts, nvertices, mpi_point_type, 0, MPI_COMM_WORLD), ERR_BCAST);
 
     // initializing and building an octree from a point cloud
     testOctree = malloc(sizeof(Octree));
     initOctree(testOctree);
-    buildOctree(testOctree, testpts, nvertices);
+    buildOctree(testOctree, inputpts, nvertices);
 
     // calculating indexes for workload division between processes
     ibeg = mpi_rank * nvertices / mpi_size;
@@ -120,51 +118,53 @@ int main(int argc, char* argv[])
     else
         iend = (mpi_rank + 1) * nvertices / mpi_size - 1;
     
-    // array of indexes of points to be deleted from a cloud
-    indsToRemove = malloc(sizeof(int) * nvertices);
+    // array of indexes of points to remain in the cloud
+    indsToStay = malloc(sizeof(int) * nvertices);
     resultSize = 0;
 
     if (mpi_rank == 0)
         printf("Starting filtering...\n\n");
 
-    // every process searches for points to be filtered in its own section of a cloud
+    // every process searches for points to remain in its own section of a cloud
     gettimeofday(&start, NULL);
-    RORfilterParallel(testOctree, k, rad, nvertices, indsToRemove, &resultSize, ibeg, iend);
+    RORfilterParallel(testOctree, k, rad, nvertices, indsToStay, &resultSize, ibeg, iend);
     if(mpi_rank != 0) {
         // everyone sends calculated indexes to master
-        checkForSuccess(MPI_Send(&resultSize, 1, MPI_INT, 0, 1, MPI_COMM_WORLD), ERR_SEND);
-        checkForSuccess(MPI_Send(indsToRemove, resultSize, MPI_INT, 0, 1, MPI_COMM_WORLD), ERR_SEND);
+        checkForSuccess(MPI_Send(&resultSize, 1, MPI_LONG, 0, 1, MPI_COMM_WORLD), ERR_SEND);
+        checkForSuccess(MPI_Send(indsToStay, resultSize, MPI_INT, 0, 1, MPI_COMM_WORLD), ERR_SEND);
     }
     else {
         for(i = 1; i < mpi_size; i++) {
-            // master process compiles a complete indsToRemove array
-            checkForSuccess(MPI_Recv(&tempSize, 1, MPI_INT, i, 1, MPI_COMM_WORLD, &status), ERR_RECV);
+            // master process compiles a complete indsToStay array
+            checkForSuccess(MPI_Recv(&tempSize, 1, MPI_LONG, i, 1, MPI_COMM_WORLD, &status), ERR_RECV);
             tempInds = malloc(sizeof(int) * tempSize);
             checkForSuccess(MPI_Recv(tempInds, tempSize, MPI_INT, i, 1, MPI_COMM_WORLD, &status), ERR_RECV);
             l = 0;
             for(j = resultSize; j < resultSize + tempSize; j++)
-                indsToRemove[j] = tempInds[l++];
+                indsToStay[j] = tempInds[l++];
             resultSize += tempSize;
             free(tempInds);
         }
         gettimeofday(&stop, NULL);
         microseconds = (stop.tv_sec - start.tv_sec) * 1000000 + stop.tv_usec - start.tv_usec;
         printf("Points to be filtered found in %f seconds\n", (float)microseconds / 1000000);
-        printf("%d points to be removed\n", resultSize);
+        printf("%ld points to stay\n", resultSize);
 
-        // master process handles removing of points from a cloud
+        // master process handles building a new cloud containing only chosen points
         printf("\nFiltering the cloud...\n");
-        for(i = 0; i < resultSize; i++)
-            removeElement(testpts, indsToRemove[i] - i, nvertices - i);
-        newvertices = nvertices - resultSize;
-        testpts = realloc(testpts, sizeof(Point) * newvertices);
-        testOctree->points = testpts;      
-        printf("Finished filtering the cloud! It contains %ld points now\n", newvertices);
+        resultpts = malloc(sizeof(Point) * resultSize);
+        j = 0;
+        for (i = 0; i < resultSize; i++) {
+            resultpts[i] = inputpts[indsToStay[j]];
+            j++;
+        }
+        printf("Finished filtering the cloud! It contains %ld points now\n", resultSize);
     }
 
     // freeing memory
     deleteOctree(testOctree);
-    free(indsToRemove);
+    free(indsToStay);
+    free(resultpts);
 
     MPI_Finalize();
     return 0;
