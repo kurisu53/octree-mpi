@@ -3,6 +3,7 @@
 #include <math.h>
 #include <string.h>
 #include <mpi.h>
+#include <float.h>
 
 #include "my_octree.h"
 
@@ -29,6 +30,14 @@ float max(float a, float b)
         return a;
     else
         return b;
+}
+
+// comparator of 2 floats lol
+int floatComp(const void * a, const void * b)
+{
+  float fa = *(const float*) a;
+  float fb = *(const float*) b;
+  return (fa > fb) - (fa < fb);
 }
 
 // comparator of 2 points by their square distance from point p
@@ -253,16 +262,20 @@ Octant* createOctant(Octree *octree, int sz, float x, float y, float z, float ex
     return oct;
 }
 
-void findKNearest(Octree *octree, int k, float radius, Point **result, int *resultSize)
+void findKNearest(Octree *octree, int k, float radius, Point **result, int *resultSize, int usingRadius, float **dists)
 {
     float sqrRadius;
 
     *result = malloc(sizeof(Point) * k);
-    sqrRadius = pow(radius, 2);
-    findKNearestRecursive(octree, octree->root, k, &sqrRadius, *result, resultSize);
+    *dists = malloc(sizeof(float) * k);
+    if (!usingRadius)
+        sqrRadius = pow(radius, 2);
+    else
+        sqrRadius = radius;
+    findKNearestRecursive(octree, octree->root, k, &sqrRadius, *result, resultSize, *dists);
 }
 
-void findKNearestRecursive(Octree *octree, Octant *octant, int k, float *sqrRadius, Point *result, int *resultSize)
+void findKNearestRecursive(Octree *octree, Octant *octant, int k, float *sqrRadius, Point *result, int *resultSize, float *dists)
 {
     int index, i = 0, currChildrenSize = 0;
     float dist;
@@ -281,9 +294,11 @@ void findKNearestRecursive(Octree *octree, Octant *octant, int k, float *sqrRadi
                     (*resultSize)--;
                 (*resultSize)++;
                 result[(*resultSize)-1] = currPoint;
-
+                dists[(*resultSize)-1] = dist;
+           
                 qsort(result, *resultSize, sizeof(Point), pointComp);
-
+                qsort(dists, *resultSize, sizeof(float), floatComp);
+                
                 if(*resultSize == k)
                     *sqrRadius = sqrDist(p, result[(*resultSize)-1]);
             }
@@ -301,7 +316,7 @@ void findKNearestRecursive(Octree *octree, Octant *octant, int k, float *sqrRadi
 
         for (i = 0; i < currChildrenSize; i++) {
             if (intersects(currChildren[i], *sqrRadius))
-                findKNearestRecursive(octree, currChildren[i], k, sqrRadius, result, resultSize);
+                findKNearestRecursive(octree, currChildren[i], k, sqrRadius, result, resultSize, dists);
         }
     }
 }
@@ -311,18 +326,94 @@ void RORfilterParallel(Octree *octree, int k, float radius, int size, int *resul
 {
     int i, j = 0, innerResultSize;
     Point *currNeighbors = NULL;
+    float *currDists = NULL;
     for (i = ibeg; i <= iend; i++) 
     {
         innerResultSize = 0;
         p = octree->points[i];
-        findKNearest(octree, k, radius, &currNeighbors, &innerResultSize);
+        findKNearest(octree, k, radius, &currNeighbors, &innerResultSize, ROR_FILTER, &currDists);
         if (innerResultSize >= k) {
             (*resultSize)++;
             result[(*resultSize)-1] = i;
         }
         free(currNeighbors);
-        currNeighbors = NULL;        
+        free(currDists);
+        currNeighbors = NULL;
+        currDists = NULL;    
     }
+}
+
+void SORfilterParallel(Octree *octree, int size, int meanK, float multiplier, int *result, long *resultSize,
+                       int ibeg, int iend, int mpi_rank, int mpi_size) {
+    int i, l, j = 0, k = 0, innerResultSize;
+    float *meanDists = malloc(sizeof(float) * size);
+    float meanDistsSum = 0.0f, meanDistsSquareSum = 0.0f;
+    Point *currNeighbors = NULL;
+    float *currDists = NULL;
+    float currDistSum = 0.0f;
+
+    long tempSize = iend - ibeg + 1;
+    long masterSize = tempSize;
+    float *tempDists;
+    MPI_Status status;
+
+    float mean, variance, stddev, threshold;
+
+    // first pass: mean distances for all points
+    for (i = ibeg, k = 0; i <= iend; i++) 
+    {
+        innerResultSize = 0;
+        p = octree->points[i];
+        findKNearest(octree, meanK, FLT_MAX, &currNeighbors, &innerResultSize, SOR_FILTER, &currDists);
+
+        for (j = 0; j < innerResultSize; j++)
+            currDistSum += sqrt(currDists[j]);
+        meanDists[k++] = currDistSum / innerResultSize;
+         
+        free(currNeighbors);
+        free(currDists);
+        currNeighbors = NULL;
+        currDists = NULL;
+        currDistSum = 0;        
+    }
+
+    if(mpi_rank != 0) {
+        checkForSuccess(MPI_Send(&tempSize, 1, MPI_LONG, 0, 1, MPI_COMM_WORLD), ERR_SEND);
+        checkForSuccess(MPI_Send(meanDists, tempSize, MPI_FLOAT, 0, 1, MPI_COMM_WORLD), ERR_SEND);
+    } else {
+        
+        for(i = 1; i < mpi_size; i++) {
+            // master process compiles a complete meanDists array
+            checkForSuccess(MPI_Recv(&tempSize, 1, MPI_LONG, i, 1, MPI_COMM_WORLD, &status), ERR_RECV);
+            tempDists = malloc(sizeof(int) * tempSize);
+            checkForSuccess(MPI_Recv(tempDists, tempSize, MPI_INT, i, 1, MPI_COMM_WORLD, &status), ERR_RECV);
+            l = 0;
+            for(j = masterSize; j < masterSize + tempSize; j++)
+                meanDists[j] = tempDists[l++];
+            masterSize += tempSize;
+            free(tempDists);
+        }
+
+        for (i = 0; i < size; i++) {
+            meanDistsSum += meanDists[i];
+            meanDistsSquareSum += meanDists[i] * meanDists[i];
+        }
+
+        mean = meanDistsSum / (float)size;
+        variance = (meanDistsSquareSum - meanDistsSum * meanDistsSum / size) / (size - 1);
+        stddev = sqrt(variance);
+        threshold = mean + multiplier * stddev;
+
+        // second pass: selecting indexes of points to stay
+        for (i = 0; i < size; i++) {
+            if (meanDists[i] <= threshold) {
+                (*resultSize)++;
+                result[(*resultSize)-1] = i;
+            }
+        }
+    }
+
+    free(meanDists);
 }
 
 // does an octant intersect with a sphere of a given radius with a center in point p?

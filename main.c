@@ -1,9 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <math.h>
 #include <mpi.h>
 #include <stddef.h>
 #include <sys/time.h>
+#include<time.h>
 #include "rply.h"
 
 #include "my_octree.h"
@@ -31,12 +33,27 @@ static int vertex_cb(p_ply_argument argument)
     return 1;
 }
 
+void writePlyOutput(char* filename, Point* resultpts, int nvericies) {
+    char buff[512];
+    FILE* newPlyFile = fopen(filename, "w");
+    fputs("ply\n\nformat ascii 1.0\n\ncomment Created By NextEngine ScanStudio\n\n", newPlyFile);
+    sprintf(buff, "element vertex %d\n\n", nvericies);
+    fputs(buff, newPlyFile);
+    fputs("property float x\n\nproperty float y\n\nproperty float z\n\nend_header\n\n", newPlyFile);
+    for (int i = 0; i < nvericies; i++) {
+        sprintf(buff, "%.6f %.6f %.6f\n", resultpts[i].x, resultpts[i].y, resultpts[i].z);
+        fputs(buff, newPlyFile);
+    }
+    fclose(newPlyFile);
+}
+
 int main(int argc, char* argv[])
 {
     // declaring variables
     Octree *testOctree;
     int i, j, l;
     int *indsToStay, *tempInds;
+    char filterType;
     long nvertices, resultSize = 0, microseconds = 0, tempSize;
     struct timeval start, stop;
     p_ply ply;
@@ -48,14 +65,34 @@ int main(int argc, char* argv[])
     char *filename; // PLY source file name
     int k; // min number of neighbors every point should have
     float rad; // search radius for neighbors
+    float mul; // multiplier for SOR filter
+    int noise;
+    float noiseProb;
 
-    if (argc != 4) {
+    srand(time(0));
+
+    if (argc != 7) {
         fprintf(stderr, "3 command line arguments must be passed: filename,\n min number of neighbors every point should have, search radius\n");
-        exit(EXIT_FAILURE);
+        MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
     }
     filename = argv[1];
     k = atoi(argv[2]);
     rad = atof(argv[3]);
+    mul = atof(argv[3]);
+    noiseProb = atof(argv[6]);
+
+    if (strcmp(argv[4], "R") && strcmp(argv[4], "S")) {
+        fprintf(stderr, "4th argument must be either R or S\n");
+        MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+    }
+    filterType = argv[4][0];
+
+    if (strcmp(argv[5], "Y") && strcmp(argv[5], "N")) {
+        fprintf(stderr, "5th argument must be either Y or N\n");
+        MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+    }
+    noise = strcmp(argv[5], "Y") ? 1 : 0;
+    
 
     // MPI initialization
     checkForSuccess(MPI_Init(&argc, &argv), ERR_INIT);
@@ -98,7 +135,24 @@ int main(int argc, char* argv[])
             exit(EXIT_FAILURE);
         }
         ply_close(ply);
+
+        if (noiseProb) {
+            int noiseCounter = 0;
+            for (int i = 0; i < nvertices; i++ ) {   
+                if ((double)rand() / (double)RAND_MAX < noiseProb ) {
+                    // Generate gaussian noise
+                    inputpts[i].x += AWGN_generator();
+                    inputpts[i].y += AWGN_generator();
+                    inputpts[i].z += AWGN_generator();
+
+                    ++noiseCounter;
+                }
+            }
+            printf("NOISE_COUNTER = %d\n", noiseCounter);
+        }
     }
+
+
     // master process broadcasts number of points
     checkForSuccess(MPI_Bcast(&nvertices, 1, MPI_LONG, 0, MPI_COMM_WORLD), ERR_BCAST);
     if(mpi_rank != 0)
@@ -122,29 +176,17 @@ int main(int argc, char* argv[])
     indsToStay = malloc(sizeof(int) * nvertices);
     resultSize = 0;
 
+    // every process searches for points to remain in its own section of a cloud
+    gettimeofday(&start, NULL);
+
     if (mpi_rank == 0)
         printf("Starting filtering...\n\n");
 
-    // every process searches for points to remain in its own section of a cloud
-    gettimeofday(&start, NULL);
-    RORfilterParallel(testOctree, k, rad, nvertices, indsToStay, &resultSize, ibeg, iend);
-    if(mpi_rank != 0) {
-        // everyone sends calculated indexes to master
-        checkForSuccess(MPI_Send(&resultSize, 1, MPI_LONG, 0, 1, MPI_COMM_WORLD), ERR_SEND);
-        checkForSuccess(MPI_Send(indsToStay, resultSize, MPI_INT, 0, 1, MPI_COMM_WORLD), ERR_SEND);
-    }
-    else {
-        for(i = 1; i < mpi_size; i++) {
-            // master process compiles a complete indsToStay array
-            checkForSuccess(MPI_Recv(&tempSize, 1, MPI_LONG, i, 1, MPI_COMM_WORLD, &status), ERR_RECV);
-            tempInds = malloc(sizeof(int) * tempSize);
-            checkForSuccess(MPI_Recv(tempInds, tempSize, MPI_INT, i, 1, MPI_COMM_WORLD, &status), ERR_RECV);
-            l = 0;
-            for(j = resultSize; j < resultSize + tempSize; j++)
-                indsToStay[j] = tempInds[l++];
-            resultSize += tempSize;
-            free(tempInds);
-        }
+    if (filterType == 'R')
+        RORfilterParallel(testOctree, k, rad, nvertices, indsToStay, &resultSize, ibeg, iend);
+    else if (filterType == 'S')
+        SORfilterParallel(testOctree, nvertices, k, mul, indsToStay, &resultSize, ibeg, iend, mpi_rank, mpi_size);
+    if(mpi_rank == 0) {
         gettimeofday(&stop, NULL);
         microseconds = (stop.tv_sec - start.tv_sec) * 1000000 + stop.tv_usec - start.tv_usec;
         printf("Points to be filtered found in %f seconds\n", (float)microseconds / 1000000);
@@ -159,6 +201,7 @@ int main(int argc, char* argv[])
             j++;
         }
         printf("Finished filtering the cloud! It contains %ld points now\n", resultSize);
+        writePlyOutput("output.ply", resultpts, resultSize);
     }
 
     // freeing memory
